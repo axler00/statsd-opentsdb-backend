@@ -29,6 +29,8 @@ var prefixTimer;
 var prefixGauge;
 var prefixSet;
 
+var netConnection;
+
 // set up namespaces
 var legacyNamespace = true;
 var globalNamespace  = [];
@@ -39,18 +41,32 @@ var setsNamespace     = [];
 
 var opentsdbStats = {};
 
+/*
+ * check if this connection is available
+ *
+ */
+var valid_connection = function(connection){
+    return (true && connection['readable']) && connection['writable'];
+}
+
+function connect() {
+    netConnection = net.connect(opentsdbPort, opentsdbHost, function() {});
+    netConnection.on("error", function(err) {
+        util.log(err);
+        netConnection.destroy();
+        setTimeout(connect, 1000);
+        netConnection = null;
+    });
+}
+
+
 var post_stats = function opentsdb_post_stats(statString) {
   var last_flush = opentsdbStats.last_flush || 0;
   var last_exception = opentsdbStats.last_exception || 0;
-  if (opentsdbHost) {
+  if (netConnection == null) {
+    return;
+  } else if (valid_connection(netConnection)) {
     try {
-      var opentsdb = net.createConnection(opentsdbPort, opentsdbHost);
-      opentsdb.addListener('error', function(connectionException){
-        if (debug) {
-          util.log(connectionException);
-        }
-      });
-      opentsdb.on('connect', function() {
         var ts = Math.round(new Date().getTime() / 1000);
         var namespace = globalNamespace.concat('statsd');
         statString += 'put ' + namespace.join(".") + '.opentsdbStats.last_exception ' + last_exception + ' ' + ts + "\n";
@@ -58,18 +74,21 @@ var post_stats = function opentsdb_post_stats(statString) {
 		if (debug) {
 			util.log(statString)
 		}
-        this.write(statString);
-        this.end();
+        netConnection.write(statString);
         opentsdbStats.last_flush = Math.round(new Date().getTime() / 1000);
-      });
     } catch(e){
       if (debug) {
         util.log(e);
       }
       opentsdbStats.last_exception = Math.round(new Date().getTime() / 1000);
     }
+  } else {
+    util.log("test\n");
+    netConnection.destroy();
+    connect();
   }
 }
+
 
 // Returns a list of "tagname=tagvalue" strings from the given metric name.
 function parse_tags(metric_name) {
@@ -195,6 +214,7 @@ var backend_status = function opentsdb_status(writeCb) {
   }
 };
 
+
 exports.init = function opentsdb_init(startup_time, config, events) {
   debug = config.debug;
   opentsdbHost = config.opentsdbHost;
@@ -250,6 +270,8 @@ exports.init = function opentsdb_init(startup_time, config, events) {
   opentsdbStats.last_exception = startup_time;
 
   flushInterval = config.flushInterval;
+  
+  connect();
 
   events.on('flush', flush_stats);
   events.on('status', backend_status);
