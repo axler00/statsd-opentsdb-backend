@@ -54,7 +54,7 @@ function connect() {
     netConnection.on("error", function(err) {
         util.log(err);
         netConnection.destroy();
-        setTimeout(connect, 1000);
+        //setTimeout(connect, 1000);
         netConnection = null;
     });
 }
@@ -64,8 +64,9 @@ var post_stats = function opentsdb_post_stats(statString) {
   var last_flush = opentsdbStats.last_flush || 0;
   var last_exception = opentsdbStats.last_exception || 0;
   if (netConnection == null) {
-    return;
-  } else if (valid_connection(netConnection)) {
+    connect();
+  }
+  if (valid_connection(netConnection)) {
     try {
         var ts = Math.round(new Date().getTime() / 1000);
         var namespace = globalNamespace.concat('statsd');
@@ -83,7 +84,6 @@ var post_stats = function opentsdb_post_stats(statString) {
       opentsdbStats.last_exception = Math.round(new Date().getTime() / 1000);
     }
   } else {
-    util.log("test\n");
     netConnection.destroy();
     connect();
   }
